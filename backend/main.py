@@ -7,7 +7,17 @@ from jose import jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+from fastapi.middleware.cors import CORSMiddleware
+
+# ... seu app = FastAPI() ...
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 SECRET="sensoriall-pomelli-gold-d4af37-marinho-0a0a12-elevation"; ALGO="HS256"
 pwd_ctx=CryptContext(schemes=["bcrypt"], deprecated="auto"); security=HTTPBearer()
 USERS_DB={}
