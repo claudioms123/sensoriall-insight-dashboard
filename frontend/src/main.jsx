@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -25,35 +24,50 @@ function App(){
   useEffect(()=>{
     if(token){
       fetch(`${API}/auth/me`, {headers: {Authorization: `Bearer ${token}`}})
-        .then(r=>r.json()).then(d=>{ if(d.email) setUser(d); else {localStorage.removeItem('sensoriall_token'); setToken(null)} })
-        .catch(()=>{localStorage.removeItem('sensoriall_token'); setToken(null)})
+       .then(r=>r.json()).then(d=>{ if(d.email) setUser(d); else {localStorage.removeItem('sensoriall_token'); setToken(null)} })
+       .catch(()=>{localStorage.removeItem('sensoriall_token'); setToken(null)})
     }
   },[token])
 
   useEffect(()=>{
-    if(user && !mapRef.current){
+    if(user){
       setTimeout(()=>{
         const div = document.getElementById('map-select')
-        if(div && window.L){
-          div.innerHTML=''
-          const map = L.map('map-select').setView([-15.793, -47.882], 4)
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
-          map.on('click', (e)=>{
-            const {lat, lng} = e.latlng
-            setLatClick(lat); setLngClick(lng)
-            setCidade(`Local selecionado no mapa (${lat.toFixed(4)}, ${lng.toFixed(4)})`)
-            setEndereco(`Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`)
-            L.marker([lat, lng]).addTo(map).bindPopup(`Local escolhido<br/>${lat.toFixed(4)}, ${lng.toFixed(4)}`).openPopup()
-          })
-          mapRef.current = map
+        if(!div ||!window.L) return
+
+        // FIX MAPA PRETO - remove mapa antigo se existir
+        if(mapRef.current){
+          try{ mapRef.current.remove() }catch(e){}
+          mapRef.current = null
         }
+        if(div._leaflet_id){
+          div._leaflet_id = null
+        }
+        div.innerHTML=''
+
+        const map = window.L.map('map-select').setView([-15.793, -47.882], 4)
+        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+        map.on('click', (e)=>{
+          const {lat, lng} = e.latlng
+          setLatClick(lat); setLngClick(lng)
+          // NÃO apaga mais a cidade digitada
+          setEndereco(`Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`)
+          window.L.marker([lat, lng]).addTo(map).bindPopup(`Local escolhido<br/>${lat.toFixed(4)}, ${lng.toFixed(4)}`).openPopup()
+        })
+        mapRef.current = map
       },800)
+    }
+    return ()=>{
+      if(mapRef.current){
+        try{ mapRef.current.remove() }catch(e){}
+        mapRef.current = null
+      }
     }
   },[user])
 
   async function handleAuth(){
-    if(!email || !password){ setMsg('Preencha email e senha'); return }
-    const endpoint = isRegister ? '/auth/register' : '/auth/login'
+    if(!email ||!password){ setMsg('Preencha email e senha'); return }
+    const endpoint = isRegister? '/auth/register' : '/auth/login'
     try{
       const res = await fetch(`${API}${endpoint}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password})})
       const json = await res.json()
@@ -64,32 +78,55 @@ function App(){
       setMsg('')
     }catch(e){ setMsg(e.message) }
   }
-  function logout(){ localStorage.removeItem('sensoriall_token'); setToken(null); setUser(null); setData(null) }
+  function logout(){
+    if(mapRef.current){ try{ mapRef.current.remove() }catch(e){} mapRef.current=null }
+    if(mapResultRef.current){ try{ mapResultRef.current.remove() }catch(e){} mapResultRef.current=null }
+    localStorage.removeItem('sensoriall_token'); setToken(null); setUser(null); setData(null)
+  }
 
   async function analisar(){
     if(!cidade){ setMsg('Digite cidade ou clique no mapa'); return }
     setLoading(true); setMsg('')
     try{
+      const payload = {
+        cidade,
+        estado: cidade.split(',')[1]?.trim()||'',
+        endereco,
+        orcamento: Number(orcamento)||2000000,
+        finalidade,
+        lat: latClick,
+        lng: lngClick
+      }
       const res = await fetch(`${API}/analisar`, {
         method:'POST',
         headers:{'Content-Type':'application/json', Authorization: `Bearer ${token}`},
-        body: JSON.stringify({cidade, estado: cidade.split(',')[1]||'', endereco, orcamento: Number(orcamento), finalidade, lat: latClick, lng: lngClick})
+        body: JSON.stringify(payload)
       })
       const json = await res.json()
-      if(!res.ok) throw new Error(json.detail)
+      if(!res.ok){
+        // FIX [object Object] - FastAPI manda array de erros
+        const detail = json.detail
+        const message = Array.isArray(detail)? detail.map(d=> d.msg || d.message || JSON.stringify(d)).join(', ') : (detail || JSON.stringify(json))
+        throw new Error(message)
+      }
       setData(json)
       setTimeout(()=>{
         const mapDiv = document.getElementById('map-result')
         if(mapDiv && json.mercado && window.L){
+          if(mapResultRef.current){
+            try{ mapResultRef.current.remove() }catch(e){}
+            mapResultRef.current = null
+          }
+          if(mapDiv._leaflet_id){ mapDiv._leaflet_id = null }
           mapDiv.innerHTML = ''
-          const map = L.map('map-result').setView([json.mercado.lat, json.mercado.lng], 13)
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
-          L.marker([json.mercado.lat, json.mercado.lng]).addTo(map).bindPopup(`${json.cidade} - ${json.ibge.vocacao}`).openPopup()
+          const map = window.L.map('map-result').setView([json.mercado.lat, json.mercado.lng], 13)
+          window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+          window.L.marker([json.mercado.lat, json.mercado.lng]).addTo(map).bindPopup(`${json.cidade} - ${json.ibge.vocacao}`).openPopup()
           if(json.mercado.lat_click && json.mercado.lng_click){
-            L.marker([json.mercado.lat_click, json.mercado.lng_click], {icon: L.icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png', iconSize: [25,41], iconAnchor: [12,41]})}).addTo(map).bindPopup('Local que você clicou no mapa')
+            window.L.marker([json.mercado.lat_click, json.mercado.lng_click], {icon: window.L.icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png', iconSize: [25,41], iconAnchor: [12,41]})}).addTo(map).bindPopup('Local que você clicou no mapa')
           }
           json.concorrencia_real.forEach((c,i)=>{
-            L.marker([json.mercado.lat + (i+1)*0.01, json.mercado.lng + (i+1)*0.01]).addTo(map).bindPopup(c)
+            window.L.marker([json.mercado.lat + (i+1)*0.01, json.mercado.lng + (i+1)*0.01]).addTo(map).bindPopup(c)
           })
           mapResultRef.current = map
         }
@@ -104,7 +141,7 @@ function App(){
     const blob = new Blob([html], {type:'text/html'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download=`Painel-${data.cidade}-${Date.now()}.html`; a.click()
   }
 
-  if(!token || !user){
+  if(!token ||!user){
     return (
       <div style={{minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0a0a12', color:'#fff', fontFamily:'Inter'}}>
         <div style={{background:'#1a1a2e', padding:'40px', borderRadius:'16px', width:'380px', border:'1px solid #333'}}>
@@ -112,8 +149,8 @@ function App(){
           <p style={{color:'#D4AF37', fontSize:'11px', letterSpacing:'2px'}}>V3 MUNDO + MAPA + LOGIN</p>
           <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Seu email" style={{width:'100%', padding:'12px', marginTop:'15px', borderRadius:'8px', background:'#0a0a12', border:'1px solid #333', color:'#fff'}}/>
           <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Senha" style={{width:'100%', padding:'12px', marginTop:'10px', borderRadius:'8px', background:'#0a0a12', border:'1px solid #333', color:'#fff'}}/>
-          <button onClick={handleAuth} style={{width:'100%', marginTop:'15px', background:'#8B5CF6', color:'#fff', border:'none', padding:'12px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold'}}>{isRegister ? 'Criar conta e Acessar' : 'Entrar'}</button>
-          <button onClick={()=>setIsRegister(!isRegister)} style={{background:'none', border:'none', color:'#888', fontSize:'11px', cursor:'pointer', marginTop:'10px'}}>{isRegister ? 'Já tenho conta' : 'Criar nova conta'}</button>
+          <button onClick={handleAuth} style={{width:'100%', marginTop:'15px', background:'#8B5CF6', color:'#fff', border:'none', padding:'12px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold'}}>{isRegister? 'Criar conta e Acessar' : 'Entrar'}</button>
+          <button onClick={()=>setIsRegister(!isRegister)} style={{background:'none', border:'none', color:'#888', fontSize:'11px', cursor:'pointer', marginTop:'10px'}}>{isRegister? 'Já tenho conta' : 'Criar nova conta'}</button>
           {msg && <p style={{color:'#ff6b6b', fontSize:'12px'}}>{msg}</p>}
         </div>
       </div>
@@ -141,11 +178,11 @@ function App(){
               </select>
             </div>
             {latClick && <p style={{fontSize:'11px', color:'#D4AF37', marginTop:'10px'}}>📍 Local clicado no mapa: {latClick.toFixed(6)}, {lngClick.toFixed(6)} - será usado como referência</p>}
-            <button onClick={analisar} style={{marginTop:'15px', background:'#8B5CF6', color:'#fff', border:'none', padding:'12px 20px', borderRadius:'8px', cursor:'pointer', width:'100%', fontWeight:'bold'}}>{loading ? 'Analisando...' : 'Analisar com Local do Mapa'}</button>
+            <button onClick={analisar} style={{marginTop:'15px', background:'#8B5CF6', color:'#fff', border:'none', padding:'12px 20px', borderRadius:'8px', cursor:'pointer', width:'100%', fontWeight:'bold'}}>{loading? 'Analisando...' : 'Analisar com Local do Mapa'}</button>
             {msg && <p style={{color:'#ff6b6b', fontSize:'12px'}}>{msg}</p>}
           </div>
           <div style={{background:'#1a1a2e', padding:'10px', borderRadius:'12px'}}>
-            <p style={{fontSize:'11px', color:'#888', margin:'0 0 8px 0'}}>🗺️ MAPA INTERATIVO - NAVEGUE E CLIQUE PARA ESCOLHER A LOCALIZAÇÃO (referência visual)</p>
+            <p style={{fontSize:'11px', color:'#888', margin:'0 0 8px 0'}}>🗺 MAPA INTERATIVO - NAVEGUE E CLIQUE PARA ESCOLHER A LOCALIZAÇÃO (referência visual)</p>
             <div id="map-select" style={{height:'320px', borderRadius:'8px', background:'#0a0a12'}}></div>
             <p style={{fontSize:'10px', color:'#555', marginTop:'6px'}}>Dica: Dê zoom na cidade, navegue, clique no terreno/lote. O endereço será preenchido automaticamente.</p>
           </div>
@@ -157,12 +194,12 @@ function App(){
               <div style={{background:'#1a1a2e', padding:'15px', borderRadius:'10px', borderLeft:'3px solid #D4AF37'}}><div style={{fontSize:'10px', color:'#888'}}>CUB REAL</div><div style={{fontSize:'18px', fontWeight:'bold'}}>R${data.cub.valor}</div><div style={{fontSize:'10px'}}>{data.cub.fonte}</div></div>
               <div style={{background:'#1a1a2e', padding:'15px', borderRadius:'10px', borderLeft:'3px solid #8B5CF6'}}><div style={{fontSize:'10px', color:'#888'}}>TICKET REAL</div><div style={{fontSize:'18px', fontWeight:'bold'}}>R${data.mercado.ticket_m2_venda_real}/m²</div><div style={{fontSize:'10px'}}>VivaReal 90d</div></div>
               <div style={{background:'#1a1a2e', padding:'15px', borderRadius:'10px', borderLeft:'3px solid #10b981'}}><div style={{fontSize:'10px', color:'#888'}}>MAIS RENTÁVEL</div><div style={{fontSize:'18px', fontWeight:'bold'}}>{data.mais_rentavel.faixa} {data.mais_rentavel.dados.margem_bruta}%</div><div style={{fontSize:'10px'}}>Lucro R${data.mais_rentavel.dados.lucro.toLocaleString()}</div></div>
-              <div style={{background:'#1a1a2e', padding:'15px', borderRadius:'10px', borderLeft:'3px solid #fff'}}><div style={{fontSize:'10px', color:'#888'}}>LOCAL MAPA</div><div style={{fontSize:'12px', fontWeight:'bold'}}>{data.mercado.lat_click ? `${data.mercado.lat_click.toFixed(4)}, ${data.mercado.lng_click.toFixed(4)}` : 'Cidade central'}</div><div style={{fontSize:'10px'}}>{data.cidade}</div></div>
+              <div style={{background:'#1a1a2e', padding:'15px', borderRadius:'10px', borderLeft:'3px solid #fff'}}><div style={{fontSize:'10px', color:'#888'}}>LOCAL MAPA</div><div style={{fontSize:'12px', fontWeight:'bold'}}>{data.mercado.lat_click? `${data.mercado.lat_click.toFixed(4)}, ${data.mercado.lng_click.toFixed(4)}` : 'Cidade central'}</div><div style={{fontSize:'10px'}}>{data.cidade}</div></div>
             </div>
 
             <div style={{display:'flex', gap:'10px', marginTop:'20px', borderBottom:'1px solid #333', paddingBottom:'10px', flexWrap:'wrap'}}>
               {[{id:'financeira', label:'Viabilidade'}, {id:'cerebro', label:'Cérebro Construtor'}, {id:'mercado', label:'Mercado'}, {id:'mapa', label:'Mapa Resultado'}, {id:'marketing', label:'Marketing'}, {id:'executivo', label:'Executivo'}].map(t=>(
-                <button key={t.id} onClick={()=>setAba(t.id)} style={{background: aba===t.id ? '#8B5CF6' : '#1a1a2e', border:'none', color:'#fff', padding:'8px 14px', borderRadius:'6px', fontSize:'12px', cursor:'pointer'}}>{t.label}</button>
+                <button key={t.id} onClick={()=>setAba(t.id)} style={{background: aba===t.id? '#8B5CF6' : '#1a1a2e', border:'none', color:'#fff', padding:'8px 14px', borderRadius:'6px', fontSize:'12px', cursor:'pointer'}}>{t.label}</button>
               ))}
             </div>
 
@@ -170,7 +207,6 @@ function App(){
               <div style={{background:'#1a1a2e', padding:'20px', borderRadius:'12px', marginTop:'15px'}}>
                 <h3>Mapa Resultado - Centralizado em {data.cidade} + Local clicado + Concorrentes</h3>
                 <div id="map-result" style={{height:'450px', borderRadius:'8px', background:'#0a0a12'}}></div>
-                <p style={{fontSize:'11px', color:'#888', marginTop:'10px'}}>Pin roxo = centro cidade, Pin dourado = local que você clicou antes, Pins cinza = concorrentes reais. Referência visual completa.</p>
               </div>
             )}
             {aba==='financeira' && (
@@ -178,7 +214,7 @@ function App(){
                 <h3>Viabilidade - CUB + Material vs Venda</h3>
                 <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'12px', marginTop:'15px'}}>
                   {Object.entries(data.faixas).map(([k,v])=>(
-                    <div key={k} style={{background:'#0a0a12', padding:'15px', borderRadius:'8px', border: data.mais_rentavel.faixa===k ? '2px solid #D4AF37' : '1px solid #333'}}>
+                    <div key={k} style={{background:'#0a0a12', padding:'15px', borderRadius:'8px', border: data.mais_rentavel.faixa===k? '2px solid #D4AF37' : '1px solid #333'}}>
                       <b>{v.material.nome}</b><br/><small>{v.material.pisos}</small>
                       <div style={{marginTop:'10px', fontSize:'12px'}}>Custo m²: R${v.custo_m2}<br/>Venda m²: R${v.preco_m2}<br/>Margem: <b style={{color:'#10b981'}}>{v.margem_bruta}%</b><br/>Lucro: R${v.lucro.toLocaleString()}</div>
                     </div>
