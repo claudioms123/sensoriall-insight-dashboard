@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt
 from passlib.context import CryptContext
-import datetime
+from typing import Optional
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
@@ -89,8 +89,8 @@ class AnaliseReq(BaseModel):
     endereco:str=""
     orcamento:float=2000000
     finalidade:str="investir"
-    lat:float=None
-    lng:float=None
+    lat:Optional[float]=None
+    lng:Optional[float]=None
 
 def gen_token(email):
     return jwt.encode({"email":email,"exp":datetime.datetime.utcnow()+datetime.timedelta(days=7)},SECRET,algorithm=ALGO)
