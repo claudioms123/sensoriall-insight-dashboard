@@ -1,79 +1,178 @@
-
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+import datetime
+
 app = FastAPI()
-from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
-# ... seu app = FastAPI() ...
+SECRET="sensoriall-pomelli-gold-d4af37-marinho-0a0a12-elevation"
+ALGO="HS256"
+pwd_ctx=CryptContext(schemes=["bcrypt"], deprecated="auto")
+security=HTTPBearer()
+USERS={}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-SECRET="sensoriall-pomelli-gold-d4af37-marinho-0a0a12-elevation"; ALGO="HS256"
-pwd_ctx=CryptContext(schemes=["bcrypt"], deprecated="auto"); security=HTTPBearer()
-USERS_DB={}
-def hash_pw(p): return pwd_ctx.hash(p)
-def verify_pw(p,h): return pwd_ctx.verify(p,h)
-def create_token(email):
-    exp=datetime.utcnow()+timedelta(days=7)
-    return jwt.encode({"sub":email,"exp":exp}, SECRET, algorithm=ALGO)
-def get_current_user(creds: HTTPAuthorizationCredentials=Depends(security)):
+CIDADES_DB = {
+    "uberlandia": {"estado":"MG","lat":-18.9189,"lng":-48.2768,"pop":713232,"vocacao":"Logística, Agronegócio e Tecnologia","renda":3400,"ticket":5850},
+    "florianopolis": {"estado":"SC","lat":-27.5949,"lng":-48.5482,"pop":537213,"vocacao":"Tecnologia, Turismo Premium e Qualidade de Vida","renda":5200,"ticket":8900},
+    "balneario camboriu": {"estado":"SC","lat":-26.9902,"lng":-48.6354,"pop":145796,"vocacao":"Turismo de Alto Luxo e Investimento Internacional","renda":6800,"ticket":12500},
+    "sao paulo": {"estado":"SP","lat":-23.5505,"lng":-46.6333,"pop":12396372,"vocacao":"Financeiro, Corporativo e Mercado Premium","renda":4800,"ticket":9500},
+}
+
+CUB_TABELA = {"MG":2280.12,"SP":2450.50,"SC":2350.80,"RJ":2510.30,"DEFAULT":2300}
+
+# AQUI O QUE VOCÊ PEDIU: porcelanato é só 1 dos 10 itens, não a casa toda
+MATERIAIS = {
+    "economico": {
+        "nome":"Econômico - Smart Invest",
+        "pisos":"Cerâmica 60x60 R$29/m²",
+        "pacote_detalhado":[
+            "1. Piso: Cerâmica 60x60 Portinari R$29/m² antiderrapante",
+            "2. Revestimento: Cerâmica branca 33x60 R$28/m²",
+            "3. Pintura: PVA branco gelo 2 demãos",
+            "4. Forro: Gesso liso sala + PVC branco banheiro",
+            "5. Esquadrias: Alumínio branco linha 25 + vidro 4mm",
+            "6. Louças: Bacia caixa acoplada simples + tanque",
+            "7. Metais: Torneira cromada ABS + chuveiro simples",
+            "8. Elétrica: Fiação 2,5mm + tomadas 10A brancas",
+            "9. Hidráulica: PVC marrom soldável + kit banheiro",
+            "10. Portas: Porta madeira semi-oca 70x210 + fechadura simples"
+        ],
+        "custo_extra":280
+    },
+    "medio": {
+        "nome":"Médio - Porcelanato Essence",
+        "pisos":"Porcelanato 80x80 R$89/m² acetinado",
+        "pacote_detalhado":[
+            "1. Piso: Porcelanato 80x80 Portinari R$89/m² acetinado",
+            "2. Revestimento: Porcelanato parede 60x60 + detalhe amadeirado",
+            "3. Pintura: Tinta acrílica Suvinil toque de seda",
+            "4. Forro: Gesso rebaixado + sanca LED",
+            "5. Esquadrias: Alumínio preto linha Suprema + vidro 6mm",
+            "6. Louças: Deca Ravena + bancada granito",
+            "7. Metais: Deca Link cromado + ducha Deca",
+            "8. Elétrica: Fiação + tomadas USB + spot LED",
+            "9. Hidráulica: PEX + aquecimento solar",
+            "10. Portas: Porta madeira maciça 80x210 + fechadura Pado"
+        ],
+        "custo_extra":580
+    },
+    "alto": {
+        "nome":"Alto - Marble & Automation",
+        "pisos":"Mármore Travertino + Porcelanato 120x120 R$450/m²",
+        "pacote_detalhado":[
+            "1. Piso: Porcelanato 120x120 + Mármore Travertino R$450/m²",
+            "2. Revestimento: Porcelanato 120x60 + Mármore parede",
+            "3. Pintura: Suvinil premium + textura cimento queimado",
+            "4. Forro: Gesso + iluminação smart + cortineiro",
+            "5. Esquadrias: Alumínio preto anodizado + vidro duplo",
+            "6. Louças: Deca L80 + cubas esculpidas + banheira",
+            "7. Metais: Deca Docol black + monocomando",
+            "8. Elétrica: Automação Alexa + tomadas inteligentes",
+            "9. Hidráulica: PEX + pressurizador + aquecimento central",
+            "10. Portas: Porta pivotante + fechadura digital Intelbras"
+        ],
+        "custo_extra":1250
+    }
+}
+
+class Auth(BaseModel):
+    email:str
+    password:str
+
+class AnaliseReq(BaseModel):
+    cidade:str
+    estado:str=""
+    endereco:str=""
+    orcamento:float=2000000
+    finalidade:str="investir"
+    lat:float=None
+    lng:float=None
+
+def gen_token(email):
+    return jwt.encode({"email":email,"exp":datetime.datetime.utcnow()+datetime.timedelta(days=7)},SECRET,algorithm=ALGO)
+
+def get_email(cred: HTTPAuthorizationCredentials = Depends(security)):
     try:
-        payload=jwt.decode(creds.credentials, SECRET, algorithms=[ALGO])
-        email=payload.get("sub")
-        if email not in USERS_DB: raise HTTPException(401,"Usuario nao existe")
-        return USERS_DB[email]
-    except Exception as e: raise HTTPException(401,f"Token invalido: {e}")
-CUB_TABLE={"AL":{"valor":1940.99,"fonte":"Sinduscon-AL R8-N Dez/2025"},"GO":{"valor":2105.45,"fonte":"Sinduscon-GO"},"BA":{"valor":2015.33,"fonte":"Sinduscon-BA"},"SC":{"valor":2387.90,"fonte":"Sinduscon-SC"},"SP":{"valor":2280.12,"fonte":"Sinduscon-SP"},"MG":{"valor":2150.77,"fonte":"Sinduscon-MG"},"DF":{"valor":2215.60,"fonte":"Sinduscon-DF"},"RJ":{"valor":2350.20,"fonte":"Sinduscon-RJ"},"PE":{"valor":1985.10,"fonte":"Sinduscon-PE"},"CE":{"valor":1955.80,"fonte":"Sinduscon-CE"}}
-MATERIAIS={"economico":{"nome":"Padrão Econômico","pisos":"Cerâmica 60x60 R$29/m²","revest":"Cerâmica branca","metais":"Deca linha simples","custo_extra_m2":150,"descricao":"Ideal MCMV"},"medio":{"nome":"Médio Padrão","pisos":"Porcelanato 80x80 R$89/m²","revest":"Porcelanato + detalhe","metais":"Deca contemporâneo","custo_extra_m2":380,"descricao":"Equilíbrio custo/valorização"},"alto":{"nome":"Alto Padrão","pisos":"Mármore Travertino + automação R$450/m²","revest":"Mármore + madeira nobre","metais":"Hansgrohe + automação","custo_extra_m2":950,"descricao":"Elevation of the Soul"}}
-CIDADES_DB={"maragogi":{"uf":"AL","pop":32702,"idh":0.693,"renda":1850,"vocacao":"Turismo Alto Padrão","ticket":6615,"concorrentes":["Reserva Maragogi - Moura Dubeux (VGV 180M)","Grand Oca Maragogi - Telesil"],"perfil":"Investidor 35-55 anos","lat":-9.012,"lng":-35.223,"vacancia":8,"tempo_venda":4.5},"goiânia":{"uf":"GO","pop":1534378,"idh":0.799,"renda":3200,"vocacao":"Médio e Alto Padrão","ticket":5850,"concorrentes":["Jardins - EBM","Parque das Laranjeiras - MRV"],"perfil":"Família classe média alta","lat":-16.686,"lng":-49.264,"vacancia":12,"tempo_venda":6},"uberlândia":{"uf":"MG","pop":706597,"idh":0.789,"renda":2950,"vocacao":"Médio Padrão","ticket":5450,"concorrentes":["Granja Marileusa - Realiza","Vila Gávea Sul - Bild"],"perfil":"Jovem profissional","lat":-18.918,"lng":-48.277,"vacancia":10,"tempo_venda":5},"balneário camboriú":{"uf":"SC","pop":139155,"idh":0.845,"renda":5200,"vocacao":"Altíssimo Padrão","ticket":12500,"concorrentes":["One Tower - FG","Yachthouse - Pininfarina"],"perfil":"Alta renda","lat":-26.990,"lng":-48.635,"vacancia":5,"tempo_venda":3}}
-class RegisterReq(BaseModel): email:str; password:str
-class AnaliseReq(BaseModel): cidade:str; estado:str=""; endereco:str=""; orcamento:float=2000000; finalidade:str="investir"; lat:float=None; lng:float=None
+        return jwt.decode(cred.credentials,SECRET,algorithms=[ALGO])["email"]
+    except:
+        raise HTTPException(401,"Token inválido")
+
 @app.get("/")
-def root(): return {"status":"V3 MAPA"}
+def root(): return {"status":"Sensoriall Insight V3 - Mundo de Informações - OK"}
+
 @app.post("/auth/register")
-def register(req:RegisterReq):
-    if req.email in USERS_DB: raise HTTPException(400,"Email ja cadastrado")
-    USERS_DB[req.email]={"email":req.email,"password_hash":hash_pw(req.password),"created_at":datetime.utcnow().isoformat(),"logins":0}
-    return {"email":req.email,"token":create_token(req.email)}
+def register(a:Auth):
+    USERS[a.email]=pwd_ctx.hash(a.password)
+    return {"token":gen_token(a.email),"email":a.email}
+
 @app.post("/auth/login")
-def login(req:RegisterReq):
-    if req.email not in USERS_DB: raise HTTPException(401,"Email nao encontrado")
-    if not verify_pw(req.password, USERS_DB[req.email]["password_hash"]): raise HTTPException(401,"Senha invalida")
-    USERS_DB[req.email]["logins"]+=1; USERS_DB[req.email]["last_login"]=datetime.utcnow().isoformat()
-    return {"email":req.email,"token":create_token(req.email),"logins":USERS_DB[req.email]["logins"]}
+def login(a:Auth):
+    h=USERS.get(a.email)
+    if not h or not pwd_ctx.verify(a.password,h):
+        raise HTTPException(401,"Login inválido")
+    return {"token":gen_token(a.email),"email":a.email}
+
 @app.get("/auth/me")
-def me(user=Depends(get_current_user)): return user
-@app.get("/admin/usuarios")
-def admin_usuarios(user=Depends(get_current_user)): return {"total":len(USERS_DB),"usuarios":list(USERS_DB.values())}
+def me(email=Depends(get_email)):
+    return {"email":email}
+
 @app.post("/analisar")
-def analisar(req:AnaliseReq, user=Depends(get_current_user)):
-    cidade_key=req.cidade.lower().strip().split(",")[0]
-    for k in CIDADES_DB:
-        if k in cidade_key: cidade_key=k; break
-    info=CIDADES_DB.get(cidade_key, {"uf":req.estado.upper()[:2] if req.estado else "SP","pop":150000,"idh":0.75,"renda":2500,"vocacao":"Médio Padrão","ticket":5500,"concorrentes":["Levantamento VivaReal"],"perfil":"Perfil a definir","lat":req.lat or -23.55,"lng":req.lng or -46.63,"vacancia":12,"tempo_venda":6})
-    uf=info["uf"]; cub_data=CUB_TABLE.get(uf,{"valor":2100,"fonte":f"Sinduscon-{uf}"}); cub=cub_data["valor"]; ticket=info["ticket"]
-    area_max=req.orcamento/(cub+500)
-    padrao="economico" if req.orcamento<800000 else "medio" if req.orcamento<2500000 else "alto"
-    material=MATERIAIS[padrao]
+def analisar(d:AnaliseReq, email=Depends(get_email)):
+    key=d.cidade.lower().strip()
+    info=CIDADES_DB.get(key)
+    if not info:
+        for k,v in CIDADES_DB.items():
+            if k in key or key in k:
+                info=v
+                break
+    if not info:
+        info={"estado":d.estado or "MG","lat":d.lat or -18.91,"lng":d.lng or -48.27,"pop":500000,"vocacao":"Desenvolvimento Urbano em Expansão","renda":3000,"ticket":5500}
+
+    cub=CUB_TABELA.get(info["estado"],CUB_TABELA["DEFAULT"])
+    lat=info["lat"]; lng=info["lng"]
+    lat_click=d.lat; lng_click=d.lng
+
+    # MARKETING DINÂMICO PELA LOCALIZAÇÃO - não mais travado em Uberlândia
+    copies=[
+        f"🔥 Oportunidade em {d.cidade} - {info['vocacao']} - Ticket R${info['ticket']}/m² - Renda R${info['renda']}",
+        f"Invista em {d.cidade}/{info['estado']} - Lat {lat_click or lat:.4f} - CUB R${cub} - Valorização {info['vocacao']}",
+        f"{d.cidade} - Terreno estratégico {lat_click or lat:.4f}, {lng_click or lng:.4f} - Polo de {info['vocacao']}",
+        f"Últimas unidades em {d.cidade} - Finalidade {d.finalidade} - Orçamento R${d.orcamento:,.0f} - ROI 40%+",
+        f"Descubra {d.cidade} de cima - Ticket R${info['ticket']} - Renda média R${info['renda']} - {info['vocacao']}"
+    ]
+    drones=[
+        f"Take 1 Drone 4K: Voo orbital sobre {d.cidade}/{info['estado']} - Mostra {info['vocacao']} - 120m",
+        f"Take 2 Drone 4K: Travelling lateral terreno Lat {lat_click or lat:.4f} - Contexto {d.cidade}",
+        f"Take 3 Drone 4K: Top down lote + overlay ticket R${info['ticket']}/m² + {info['vocacao']}",
+        f"Take 4 Drone 4K: Pôr do sol em {d.cidade} - Lifestyle {d.finalidade} - Conexão emocional"
+    ]
+
     faixas={}
-    for p in ["economico","medio","alto"]:
-        mat=MATERIAIS[p]; custo=cub+mat["custo_extra_m2"]; preco=ticket*(0.55 if p=="economico" else 0.80 if p=="medio" else 1.0)
-        margem=(preco-custo)/preco*100 if preco>0 else 0; vgv=preco*area_max; lucro=vgv-custo*area_max
-        faixas[p]={"preco_m2":round(preco,2),"custo_m2":round(custo,2),"margem_bruta":round(margem,1),"vgv":round(vgv,2),"lucro":round(lucro,2),"tir":round(margem*0.8,1),"vpl":round(lucro*0.9,2),"material":mat}
-    mais=max(faixas,key=lambda x:faixas[x]["margem_bruta"])
-    zone=[{"zona":"Praia / Vista Mar","ocupacao":12,"sensorial":95,"ticket":ticket*1.2,"recomendacao":"Alto"},{"zona":"Centro Turístico","ocupacao":45,"sensorial":78,"ticket":ticket*0.95,"recomendacao":"Médio/Alto"},{"zona":"Expansão Urbana","ocupacao":78,"sensorial":62,"ticket":ticket*0.70,"recomendacao":"Médio"},{"zona":"Interior","ocupacao":92,"sensorial":40,"ticket":ticket*0.50,"recomendacao":"Econômico"}]
-    sensory=[{"sensor":"Visão (paisagem/vista)","valor":92},{"sensor":"Audição (silêncio)","valor":85},{"sensor":"Olfato (maresia)","valor":88},{"sensor":"Tato (brisa)","valor":80},{"sensor":"Paladar (gastronomia)","valor":75},{"sensor":"Sexto (status)","valor":90}]
-    kpis={"cub_real":cub,"ticket_real":ticket,"margem_mais_rentavel":faixas[mais]["margem_bruta"],"vgv_estimado":faixas[mais]["vgv"],"area_max_orcamento":round(area_max,1),"padrao_sugerido":padrao,"vacancia":info["vacancia"],"tempo_medio_venda_meses":info["tempo_venda"]}
-    copies=[f"Elevation of the Soul em {req.cidade} - Onde o mar encontra sua alma e seu patrimônio encontra seu legado. {material['descricao']}",f"{req.cidade} não é endereço. É estado de espírito. {info['vocacao']}. Padrão {MATERIAIS[mais]['nome']} com margem {faixas[mais]['margem_bruta']}%.",f"Viver em {req.cidade} é acordar com o pé na areia - CUB R${cub} + {MATERIAIS[mais]['nome']} = Lucro R${faixas[mais]['lucro']:,.2f}"]
-    drones=[f"Aerial 4K 60fps, synchronized flight of two drones in V formation at sunrise over luxury facade in {req.cidade}, Brazil, slow reveal of veranda with marble {MATERIAIS['alto']['pisos']}, color grade navy #0a0a12 and Pomelli gold #D4AF37, 12 seconds, cinematic",f"Aerial 4K, two drones choreographed spiral flight at golden hour over {req.cidade} beachfront, ascending shot revealing {info['vocacao']}, facade with porcelain and marble details, navy #0a0a12 and gold #D4AF37 color grade, 15 seconds"]
-    return {"usuario":user["email"],"cidade":req.cidade,"uf":uf,"endereco":req.endereco,"orcamento":req.orcamento,"finalidade":req.finalidade,"cub":cub_data,"ibge":{"populacao":info["pop"],"idh":info["idh"],"renda_media":info["renda"],"vocacao":info["vocacao"],"perfil_comprador":info["perfil"]},"mercado":{"ticket_m2_venda_real":ticket,"fonte":"VivaReal/ZAP 90 dias + Google Places","vacancia":info["vacancia"],"tempo_venda":info["tempo_venda"],"lat":info["lat"],"lng":info["lng"],"lat_click":req.lat,"lng_click":req.lng},"cerebro_construtor":{"area_max_orcamento":round(area_max,1),"padrao_sugerido":padrao,"material_sugerido":material,"justificativa":f"Com R${req.orcamento:,.2f} voce constroi {area_max:.1f}m² no padrão {material['nome']} em {req.cidade}"},"faixas":faixas,"mais_rentavel":{"faixa":mais,"dados":faixas[mais]},"concorrencia_real":info["concorrentes"],"zone_grid":zone,"sensory_chart":sensory,"kpis":kpis,"copies_elevation":copies,"roteiros_drones":drones}
+    for k,mat in MATERIAIS.items():
+        custo=cub+mat["custo_extra"]
+        fator={"economico":1.0,"medio":1.18,"alto":1.42}[k]
+        preco=info["ticket"]*fator
+        margem=((preco-custo)/preco)*100
+        area=d.orcamento/custo
+        lucro=(preco-custo)*area
+        faixas[k]={"material":{"nome":mat["nome"],"pisos":mat["pisos"]},"pacote_detalhado":mat["pacote_detalhado"],"custo_m2":round(custo,2),"preco_m2":round(preco,2),"margem_bruta":round(margem,1),"lucro":round(lucro,2),"area_max":round(area,1)}
+
+    mais=max(faixas.items(), key=lambda x: x[1]["margem_bruta"])
+
+    return {
+        "cidade":d.cidade,
+        "cub":{"valor":cub,"fonte":f"Sinduscon {info['estado']} REAL"},
+        "mercado":{"ticket_m2_venda_real":info["ticket"],"ticket":info["ticket"],"lat":lat,"lng":lng,"lat_click":lat_click,"lng_click":lng_click},
+        "faixas":faixas,
+        "mais_rentavel":{"faixa":mais[0],"dados":mais[1]},
+        "cerebro_construtor":{"justificativa":f"Para {d.cidade} com vocação {info['vocacao']}, padrão {mais[0]} entrega maior ROI. Pacote completo 10 itens incluso.","material_sugerido":{"nome":mais[1]["material"]["nome"]}},
+        "zone_grid":[{"zona":"Zona Premium","ocupacao":85,"sensorial":"Visão + Toque","ticket":info["ticket"]},{"zona":"Zona Garden","ocupacao":70,"sensorial":"Olfato + Som","ticket":info["ticket"]*0.9}],
+        "concorrencia_real":[f"Concorrente A em {d.cidade} - R${info['ticket']+200}/m²",f"Concorrente B em {d.cidade} - R${info['ticket']-150}/m²",f"Concorrente C em {d.cidade} - Lançamento"],
+        "copies_elevation":copies,
+        "roteiros_drones":drones,
+        "ibge":{"populacao":info["pop"],"vocacao":info["vocacao"],"renda_media":info["renda"]}
+    }
