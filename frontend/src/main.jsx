@@ -6,7 +6,7 @@ import 'leaflet/dist/leaflet.css'
 const API = import.meta.env.VITE_API_URL || "https://sensoriall-backend.onrender.com"
 
 function App(){
-  const [token] = useState(localStorage.getItem('token')||'demo-token')
+  // sem token para demo amigo
   const [cidade, setCidade] = useState('Brasília')
   const [endereco, setEndereco] = useState('')
   const [orcamento, setOrcamento] = useState(2000000)
@@ -57,7 +57,7 @@ function App(){
     try{
       const r = await fetch(`${API}/analisar`,{
         method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({cidade, endereco, orcamento: Number(orcamento)||2000000, finalidade, lat: latClick, lng: lngClick})
       })
       const j = await r.json()
