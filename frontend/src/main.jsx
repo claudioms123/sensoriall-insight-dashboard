@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
 import L from 'leaflet'
@@ -6,7 +7,9 @@ import 'leaflet/dist/leaflet.css'
 const API = import.meta.env.VITE_API_URL || "https://sensoriall-backend.onrender.com"
 
 function App(){
-  // sem token para demo amigo
+  const [token, setToken] = useState(localStorage.getItem('token')||'')
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
   const [cidade, setCidade] = useState('Brasília')
   const [endereco, setEndereco] = useState('')
   const [orcamento, setOrcamento] = useState(2000000)
@@ -51,23 +54,73 @@ function App(){
     setTimeout(()=> mapResultInstance.current.invalidateSize(), 300)
   },[aba, data])
 
+  const login = async ()=>{
+    setMsg('Entrando...')
+    try{
+      // tenta 3 formatos comuns de login
+      let r = await fetch(`${API}/auth/login`,{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: senha})})
+      if(!r.ok){
+        r = await fetch(`${API}/login`,{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: senha})})
+      }
+      if(!r.ok){
+        const fd = new FormData()
+        fd.append('username', email)
+        fd.append('password', senha)
+        r = await fetch(`${API}/auth/login`,{method:'POST', body: fd})
+      }
+      const j = await r.json()
+      const tk = j.access_token || j.token || j.accessToken
+      if(!r.ok || !tk) throw new Error(j.detail || j.msg || 'Login falhou')
+      localStorage.setItem('token', tk)
+      setToken(tk)
+      setMsg('')
+    }catch(e){ setMsg(e.message) }
+  }
+
+  const logout = ()=>{
+    localStorage.removeItem('token')
+    setToken('')
+    setData(null)
+  }
+
   const analisar = async ()=>{
     if(!cidade){ setMsg('Digite a cidade'); return }
     setMsg('Analisando...')
     try{
       const r = await fetch(`${API}/analisar`,{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({cidade, endereco, orcamento: Number(orcamento)||2000000, finalidade, lat: latClick, lng: lngClick})
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body: JSON.stringify({cidade, endereco, orcamento: Number(orcamento)||2000000, finalidade: (finalidade==='morar'?'morar':'investir'), finalidade_original: finalidade, lat: latClick, lng: lngClick})
       })
       const j = await r.json()
-      if(!r.ok) throw new Error(j.detail || 'Erro')
+      if(!r.ok){
+        if(r.status===401){ logout(); throw new Error('Sessão expirou, faça login de novo') }
+        throw new Error(j.detail || 'Erro')
+      }
       setData(j); setAba('viabilidade'); setMsg('')
     }catch(e){ setMsg(e.message) }
   }
 
+  if(!token){
+    return (
+      <div style={{background:'#0a0a12', color:'#fff', minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter'}}>
+        <div style={{background:'#151525', padding:'30px', borderRadius:'12px', width:'350px'}}>
+          <h3 style={{marginTop:0}}>Sensoriall - Login</h3>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Seu email" style={{width:'100%', padding:'10px', marginTop:'10px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
+          <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Senha" style={{width:'100%', padding:'10px', marginTop:'8px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
+          <button onClick={login} style={{width:'100%', marginTop:'12px', background:'#8a5cf5', padding:'12px', borderRadius:'8px', border:'none', color:'#fff', fontWeight:'bold', cursor:'pointer'}}>Entrar</button>
+          {msg && <div style={{color:'tomato', fontSize:'12px', marginTop:'8px'}}>{msg}</div>}
+          <small style={{color:'#666', display:'block', marginTop:'12px'}}>Use o mesmo email/senha que cadastrou no backend</small>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{background:'#0a0a12', color:'#fff', minHeight:'100vh', padding:'15px', fontFamily:'Inter'}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+        <small style={{color:'#888'}}>Logado | <span onClick={logout} style={{color:'#8a5cf5', cursor:'pointer', textDecoration:'underline'}}>Sair</span></small>
+      </div>
       <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px'}}>
         <div style={{background:'#151525', padding:'15px', borderRadius:'12px'}}>
           <b>1. Busca, Orçamento e Mapa - Clique no mapa para escolher</b><br/>
@@ -77,13 +130,16 @@ function App(){
           <div style={{display:'flex', gap:'8px', marginTop:'8px'}}>
             <input type="number" value={orcamento} onChange={e=>setOrcamento(e.target.value)} style={{flex:1, padding:'10px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
             <select value={finalidade} onChange={e=>setFinalidade(e.target.value)} style={{flex:1, padding:'10px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}>
-              <option value="investir">Investir / Revenda</option>
+              <option value="investir">Investir</option>
+              <option value="revenda">Revenda</option>
               <option value="morar">Morar</option>
+              <option value="aluguel">Aluguel / Renda</option>
+              <option value="comercial">Comercial / Galpão</option>
             </select>
           </div>
           {latClick && <div style={{marginTop:'8px', fontSize:'11px', color:'#D4AF37'}}>📍 {latClick.toFixed(5)}, {lngClick.toFixed(5)}</div>}
           <button onClick={analisar} style={{width:'100%', marginTop:'12px', background:'#8a5cf5', padding:'12px', borderRadius:'8px', border:'none', color:'#fff', fontWeight:'bold', cursor:'pointer'}}>Analisar com Local do Mapa</button>
-          {msg && <div style={{color:'tomato', fontSize:'12px', marginTop:'8px'}}>{msg}</div>}
+          {msg && <div style={{color: msg.includes('Analisando')?'#D4AF37':'tomato', fontSize:'12px', marginTop:'8px'}}>{msg}</div>}
         </div>
         <div style={{background:'#151525', borderRadius:'12px', overflow:'hidden'}}>
           <div style={{padding:'8px', fontSize:'10px', color:'#888'}}>MAPA - CLIQUE PARA ESCOLHER</div>
