@@ -90,7 +90,7 @@ function App(){
       const r = await fetch(`${API}/analisar`,{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-        body: JSON.stringify({cidade, endereco, orcamento: Number(orcamento)||2000000, finalidade: (finalidade==='morar'?'morar':'investir'), finalidade_original: finalidade, lat: latClick, lng: lngClick})
+        body: JSON.stringify({cidade, endereco, orcamento: Number(orcamento)||2000000, finalidade, lat: latClick, lng: lngClick})
       })
       const j = await r.json()
       if(!r.ok){
@@ -101,16 +101,46 @@ function App(){
     }catch(e){ setMsg(e.message) }
   }
 
+  const [modo, setModo] = useState('login')
+  const [debug, setDebug] = useState('')
+
+  const registrar = async ()=>{
+    setMsg('Cadastrando...'); setDebug('')
+    try{
+      let r = await fetch(`${API}/auth/register`,{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: senha})})
+      if(!r.ok){
+        r = await fetch(`${API}/register`,{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: senha})})
+      }
+      if(!r.ok){
+        r = await fetch(`${API}/auth/signup`,{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email, password: senha})})
+      }
+      const txt = await r.text()
+      setDebug(`Status ${r.status}: ${txt}`)
+      if(!r.ok) throw new Error(`Erro ${r.status}: ${txt}`)
+      setMsg('Cadastrado! Agora clique em Entrar')
+      setModo('login')
+    }catch(e){ setMsg(e.message) }
+  }
+
   if(!token){
     return (
       <div style={{background:'#0a0a12', color:'#fff', minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter'}}>
-        <div style={{background:'#151525', padding:'30px', borderRadius:'12px', width:'350px'}}>
-          <h3 style={{marginTop:0}}>Sensoriall - Login</h3>
+        <div style={{background:'#151525', padding:'30px', borderRadius:'12px', width:'400px'}}>
+          <h3 style={{marginTop:0}}>Sensoriall - {modo==='login'?'Login':'Criar Conta'}</h3>
+          <div style={{display:'flex', gap:'8px', marginBottom:'12px'}}>
+            <button onClick={()=>setModo('login')} style={{flex:1, padding:'8px', background: modo==='login'?'#8a5cf5':'#222', border:'none', color:'#fff', borderRadius:'6px'}}>Entrar</button>
+            <button onClick={()=>setModo('cadastro')} style={{flex:1, padding:'8px', background: modo==='cadastro'?'#8a5cf5':'#222', border:'none', color:'#fff', borderRadius:'6px'}}>Cadastrar</button>
+          </div>
           <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Seu email" style={{width:'100%', padding:'10px', marginTop:'10px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
-          <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Senha" style={{width:'100%', padding:'10px', marginTop:'8px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
-          <button onClick={login} style={{width:'100%', marginTop:'12px', background:'#8a5cf5', padding:'12px', borderRadius:'8px', border:'none', color:'#fff', fontWeight:'bold', cursor:'pointer'}}>Entrar</button>
-          {msg && <div style={{color:'tomato', fontSize:'12px', marginTop:'8px'}}>{msg}</div>}
-          <small style={{color:'#666', display:'block', marginTop:'12px'}}>Use o mesmo email/senha que cadastrou no backend</small>
+          <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="Senha (min 6)" style={{width:'100%', padding:'10px', marginTop:'8px', borderRadius:'6px', background:'#000', color:'#fff', border:'1px solid #333'}}/>
+          {modo==='login' ? (
+            <button onClick={login} style={{width:'100%', marginTop:'12px', background:'#8a5cf5', padding:'12px', borderRadius:'8px', border:'none', color:'#fff', fontWeight:'bold', cursor:'pointer'}}>Entrar</button>
+          ) : (
+            <button onClick={registrar} style={{width:'100%', marginTop:'12px', background:'#00ff88', padding:'12px', borderRadius:'8px', border:'none', color:'#000', fontWeight:'bold', cursor:'pointer'}}>Cadastrar Novo</button>
+          )}
+          {msg && <div style={{color: msg.includes('Cadastrado')?'#00ff88':'tomato', fontSize:'12px', marginTop:'8px', wordBreak:'break-all'}}>{msg}</div>}
+          {debug && <div style={{background:'#000', padding:'8px', marginTop:'8px', fontSize:'10px', color:'#888', borderRadius:'4px', maxHeight:'100px', overflowY:'auto'}}>{debug}</div>}
+          <small style={{color:'#666', display:'block', marginTop:'12px'}}>Backend: {API}</small>
         </div>
       </div>
     )
