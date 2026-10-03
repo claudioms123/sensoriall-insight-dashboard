@@ -7,8 +7,7 @@ from passlib.context import CryptContext
 from typing import Optional
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
-
+app.add_middleware(CORSMiddleware, allow_origins=["https://frontend-sensoriall.vercel.app", "http://localhost:5173", "http://localhost:3000"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 SECRET="sensoriall-pomelli-gold-d4af37-marinho-0a0a12-elevation"
 ALGO="HS256"
 pwd_ctx=CryptContext(schemes=["bcrypt"], deprecated="auto")
